@@ -52,17 +52,21 @@ public:
 	virtual Tensor<1, dim> value(const Point<dim>& p) const override {
 		const double& x = p[0];
 		const double& y = p[1];
-		double tmp;
 		Tensor<1, dim> value;
+		
+		const double cx = std::cos(pi * x);
+		const double cy = std::cos(pi * y);
+		const double sx = std::sin(pi * x);
+		const double sy = std::sin(pi * y);
 		
 		value[0] =
 			(1. - 2. * x) * y * (1. - y)
-			 -nu * 2. * pi * pi * ((tmp = std::cos(pi * x)) * tmp - 3. * (tmp = std::sin(pi * x)) * tmp) * std::sin(pi * y) * std::cos(pi * y)
-			+ pi * (tmp = std::sin(pi * x)) * tmp * tmp * (tmp = std::sin(pi * y)) * tmp * std::cos(pi * x);
+			 -nu * 2. * pi * pi * (cx*cx - 3. * sx*sx) * sy * cy
+			+ pi * sx*sx*sx * sy*sy * cx;
 		value[1] =
 			(1. - 2. * y) * x * (1. - x)
-			+ nu * 2. * pi * pi * ((tmp = std::cos(pi * y)) * tmp - 3. * (tmp = std::sin(pi * y)) * tmp) * std::sin(pi * x) * std::cos(pi * x)
-			+ pi * (tmp = std::sin(pi * y)) * tmp * tmp * (tmp = std::sin(pi * x)) * tmp * std::cos(pi * y);
+			+ nu * 2. * pi * pi * (cy*cy - 3. * sy*sy) * sx*cx
+			+ pi * sy*sy*sy * sx*sx * cy;
 		
 		return value;
 	}
@@ -74,12 +78,16 @@ public:
 	ExactVelocity() : TensorFunction<1, dim>() {}
 	virtual Tensor<1, dim> value(const Point<dim>& p) const override {
 		Assert(dim == 2, ExcNotImplemented());
-		double tmp;
+
 		const double& x = p[0];
 		const double& y = p[1];
+		const double cx = std::cos(pi * x);
+		const double cy = std::cos(pi * y);
+		const double sx = std::sin(pi * x);
+		const double sy = std::sin(pi * y);
 		Tensor<1, dim> value;
-		value[0] = (tmp = std::sin(pi * p[0])) * tmp * std::sin(pi * p[1]) * std::cos(pi * p[1]);
-		value[1] = (tmp = -std::sin(pi * p[1])) * tmp * std::sin(pi * p[0]) * std::cos(pi * p[0]);
+		value[0] = sx*sx * sy * cy;
+		value[1] = -sy*sy * sx * cx;
 
 		return value;
 	}
@@ -261,17 +269,18 @@ void NavierStokes<dim>::assemble_matrices() {
 			for (unsigned int i = 0; i < dofs_per_cell; ++i) {
 				for (unsigned int j = 0; j < dofs_per_cell; ++j) {
 				
+					
 					local_matrix(i, j) +=
 						((grad_phi_u[j] * velocity_values[q]) * phi_u[i] +
 							nu * scalar_product(grad_phi_u[i], grad_phi_u[j]) -
 							div_phi_u[i] * phi_p[j] -
 							phi_p[i] * div_phi_u[j]) * fe_values.JxW(q);
-				
-
 					
 				}
+				
 				local_rhs(i) +=
 					specific_body_force_values[q] * phi_u[i] * fe_values.JxW(q);
+					
 			}
 		}
 
@@ -301,6 +310,7 @@ void NavierStokes<dim>::solve_time_step() {
 	double initial_defect = std::nan("");
 	double current_defect = std::numeric_limits<double>::infinity();
 	unsigned int iter = 1;
+
 	do {
 		assemble_matrices();
 		std::cout << "Assembled Matrices, iteration: " << iter++ << std::endl;
@@ -320,7 +330,7 @@ void NavierStokes<dim>::solve_time_step() {
 		solution -= defect;
 		std::cout << current_defect << std::endl;
 		
-	} while (current_defect / initial_defect > 1e-6 && iter <= 50);
+	} while (current_defect / initial_defect > 1e-8 && iter <= 30);
 
 }
 
@@ -343,11 +353,12 @@ void NavierStokes<dim>::output_results() {
 
 	BlockVector<double> exact_solution;
 	exact_solution.reinit(solution);
+	
+	VectorTools::interpolate(dof_handler, ExactSolution<dim>(), exact_solution);
 	std::vector<std::string> exact_solution_names(dim, "exact_velocity");
 	exact_solution_names.emplace_back("exact_pressure");
 	for (int i = 0; i < dim; ++i)
 		exact_solution_names[i] += "_" + std::to_string(i);
-	VectorTools::interpolate(dof_handler, ExactSolution<dim>(), exact_solution);
 
 	data_out.add_data_vector(exact_solution, exact_solution_names, DataOut<dim>::type_dof_data, data_component_interpretation);
 
